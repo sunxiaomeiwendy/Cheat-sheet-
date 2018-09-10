@@ -1,0 +1,47 @@
+#error evaluation
+#put error for each model into a new column
+stackedErrorColumns <- stackedTestPredictions %>% 
+  filter(testInd == "test") %>%
+  group_by(goup, subgroup) %>%
+  summarize_at(.vars = vars(model1Prediction, model2Prediction, model3Prediction,
+                            model4Prediction, model5Prediction, model6Prediction,
+                            model7Prediction,model8prediction),
+               .funs = funs(rmse = rmse(DV, .), nrmse = rmse(DV, .)/(range(DV)[2]-range(DV)[1]))) %>%
+  mutate(ID = paste0(group, "_", subgroup))
+
+#stack error columns and provide model indicator variables
+stackedError <- data.frame(stackedErrorColumns[c("group", "subgroup", "ID")],
+                           stack(stackedErrorColumns[c("model1Prediction_rmse", "model2Pdiction_rmse", "model3Prediction_rmse",
+                                                       "model4Prediction_rmse", "model5Prediction_rmse", "model6Prediction_rmse",
+                                                       "model7Prediction_rmse","model8Prediction_rmse")]),
+                           stack(stackedErrorColumns[c("model1Prediction_rmse", "model2Pdiction_rmse", "model3Prediction_rmse",
+                                                       "model4Prediction_rmse", "model5Prediction_rmse", "model6Prediction_rmse",
+                                                       "model7Prediction_rmse","model8Prediction_rmse")])) %>%
+  rename(rmse = values, nrmse = values.1, model = ind, modelNum = ind.1) %>%
+  mutate(modelNum = as.integer(modelNum)) %>%
+  mutate(model = recode_factor(model, "model1Prediction_rmse" = "model1", "model2Prediction_rmse" = "model2",
+                               "model3Prediction_rmse" = "model3", "mdoel4Pediction_rmse" = "model4",
+                               "model5Prediction_rmse" = "model5", "model6Prediction_rmse" = "model6",
+                               "model7Prediction_rmse" = "model7","model8Prediction_rmse" = "model8")) %>%
+  select(-model, everything())
+
+#find the best model for each group/subgroup combination
+stackedBestModel <- stackedError %>% 
+  group_by(group, subgroup, ID) %>%
+  summarise(rmse = min(rmse)) %>%
+  left_join(stackedError, by = c("group", "subgroup", "ID", "rmse")) %>%
+  group_by(group, subgroup, ID, rmse) %>%
+  summarize(modelNum = min(modelNum)) %>%
+  left_join(stackedError, by = c("group", "subgroup", "ID", "rmse", "modelNum")) %>%
+  rename(minRMSE = rmse)
+
+
+save(stackedBestModel, file = "./data/bestModel.Rdata")
+
+#final predictions for test models
+#this isn't really necessary, but may be nice to have
+finalTestPredictions <-stackedTestPredictions %>%
+  inner_join(stackedBestModel, by = c("group", "subgroup", "ID")) %>% 
+  mutate(finalPrediction = eval(parse(text = (paste0(as.character(model), "Prediction")))))
+#the inner join filters out combinations that have no test data
+#no test data, then no rmse, and cannot choose a model 
